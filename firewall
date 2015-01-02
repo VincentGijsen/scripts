@@ -1,11 +1,26 @@
 #!/bin/bash
 
 ACTION=$1
+WHOAMI=`whoami`
+
+if [ "$WHOAMI" != "root" ]; then
+	echo "Script expects to be root. Use 'sudo firewall'"
+	exit 1;
+fi
+
+if [ -z "$ACTION" ]; then
+	read -p "Give action: [save|restore|status]: " ACTION
+fi
+
+if [ ! -d "/etc/iptables/" ]; then
+	mkdir "/etc/iptables"
+fi
 
 if [ "$ACTION" == "save" ]; then
 
 	/sbin/iptables-save > /etc/iptables/iptables
 	/sbin/ip6tables-save > /etc/iptables/ip6tables
+	echo "iptables saved for IPv4 and IPv6"
 
 fi
 
@@ -13,5 +28,14 @@ if [ "$ACTION" == "restore" ]; then
 
 	/sbin/iptables-restore /etc/iptables/iptables
 	/sbin/ip6tables-restore /etc/iptables/ip6tables
+	echo "iptables restored for IPv4 and IPv6"
 
 fi
+
+if [ "$ACTION" == "status" ]; then
+	echo "=====================IPV4====================="
+	/sbin/iptables -vnL
+	echo "=====================IPV6====================="
+	/sbin/ip6tables -vnL
+fi
+
