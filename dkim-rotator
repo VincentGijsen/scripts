@@ -1,0 +1,59 @@
+#!/bin/bash
+
+DOMAIN=$1
+
+if [ -z $DOMAIN ] ; then
+  echo "Provide domain"
+  exit 1
+fi
+
+if [ ! -d "/etc/opendkim/$DOMAIN" ] ; then
+  mkdir /etc/opendkim/$DOMAIN
+fi
+
+#NEW SELECTOR
+RAND=`echo $RANDOM | sha512sum`
+RAND=`echo ${RAND:0:16}`
+
+echo "Random generated: $RAND"
+
+#OLD SELECTOR
+SELEC=`ls /etc/opendkim/$DOMAIN/*.private | xargs -n1 basename | awk -F. '{ print $1 }'`
+
+echo "Replacing selector $SELEC with new $RAND"
+
+sed -i s/$SELEC/$RAND/g /etc/opendkim/KeyTable
+sed -i s/$SELEC/$RAND/g /etc/opendkim/SigningTable
+
+rm /etc/nsd3/$DOMAIN/dkim.txt
+
+echo "Removing $SELEC from $DOMAIN"
+rm /etc/opendkim/$DOMAIN/$SELEC.*
+
+/usr/bin/opendkim-genkey -b 4096 -S -s $RAND -D /etc/opendkim/$DOMAIN/ -d $DOMAIN
+
+TXT=`cat /etc/opendkim/$DOMAIN/$RAND.txt | awk -F"; -----" '{ print $1 }'`
+
+echo "$TXT"")" | sed -r 's/(.{120})/\1\n/g' >> /etc/nsd3/$DOMAIN/dkim.txt
+sed -i 's/IN TXT/IN TXT (/' /etc/nsd3/$DOMAIN/dkim.txt
+
+TLINES=`wc -l /etc/nsd3/$DOMAIN/dkim.txt | awk '{ print $1 }'`
+TLINE=1
+while read line; do
+  if [ $TLINE -eq 1 ]; then
+    echo $line | sed "s/$/\"/" > /tmp/dkim-$DOMAIN.txt
+  elif [ $TLINE -eq $TLINES ]; then
+    echo $line | sed "s/^/\"/" >> /tmp/dkim-$DOMAIN.txt
+  else
+    echo $line | sed "s/$/\"/" | sed "s/^/\"/" >> /tmp/dkim-$DOMAIN.txt
+  fi
+  TLINE=$(($TLINE+1))
+done </etc/nsd3/$DOMAIN/dkim.txt
+
+mv /tmp/dkim-$DOMAIN.txt /etc/nsd3/$DOMAIN/dkim.txt
+#ln -s /etc/opendkim/$DOMAIN/$RAND.txt /etc/nsd3/$DOMAIN/dkim.txt
+chown -R opendkim:opendkim /etc/opendkim/
+chmod -R 500 /etc/opendkim/$DOMAIN
+
+service opendkim restart
+/usr/local/bin/signzone $DOMAIN
