@@ -1,0 +1,120 @@
+############################
+# CLEANING UP DEFAULT SHIT #
+############################
+while iptables -D NoCat 1; do echo "Deleted"; done
+while iptables -D NoCat_Ports 1; do	echo "Deleted"; done
+while iptables -D shlimit 1; do echo "Deleted"; done
+while iptables -t nat -D PREROUTING 1; do echo "Deleted"; done
+while iptables -t nat -D POSTROUTING 1; do echo "Deleted"; done
+while iptables -t nat -D NoCat_Capture 1; do echo "Deleted"; done
+
+iptables -X NoCat
+iptables -X NoCat_Ports
+iptables -X NoCat_Download
+iptables -X NoCat_Inbound
+iptables -X NoCat_Upload
+iptables -X shlimit
+iptables -X logdrop
+iptables -t nat -X NoCat_Capture
+
+iptables -P OUTPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P INPUT ACCEPT
+iptables -F
+
+####################################
+# SETTING NAT FOR OUTGOING TRAFFIC #
+####################################
+iptables -t nat -A POSTROUTING -o vlan2 -s 172.16.123.0/24 -j MASQUERADE
+
+###############################
+# CREATING NEW LOGGING CHAINS #
+###############################
+iptables -N ILOG
+iptables -A ILOG -m limit --limit 2048/min -j LOG --log-prefix "INPUT LOG: " --log-level 7
+iptables -A ILOG -j DROP
+
+iptables -N FLOG
+iptables -A FLOG -m limit --limit 2048/min -j LOG --log-prefix "FORWARD LOG: " --log-level 7
+iptables -A FLOG -j DROP
+
+iptables -N OLOG
+iptables -A OLOG -m limit --limit 2048/min -j LOG --log-prefix "OUTPUT LOG: " --log-level 7
+iptables -A OLOG -j ACCEPT
+
+#########
+# INPUT #
+#########
+#ALLOW TRAFFIC ON THESE INTERFACES
+iptables -A INPUT -i tap11 -j ACCEPT
+iptables -A INPUT -i wl0.1 -j ACCEPT
+iptables -A INPUT -i wl1.1 -j ACCEPT
+iptables -A INPUT -i eth1 -j ACCEPT
+iptables -A INPUT -i eth2 -j ACCEPT
+iptables -A INPUT -i lo -j ACCEPT
+
+#vlan2
+iptables -A INPUT -i vlan2 -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -i vlan2 -p icmp -j ACCEPT
+iptables -A INPUT -i vlan2 -p tcp --dport 443 -j ACCEPT
+
+#br0
+iptables -A INPUT -i br0 -p tcp --dport 22 -j ACCEPT
+iptables -A INPUT -i br0 -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -i br0 -p tcp --dport 443 -j ACCEPT
+iptables -A INPUT -i br0 -p udp --dport 53 -j ACCEPT
+iptables -A INPUT -i br0 -p udp --dport 67:68 -j ACCEPT
+iptables -A INPUT -i br0 --destination 172.16.123.255 -j ACCEPT
+iptables -A INPUT -i br0 --destination 255.255.255.255 -j ACCEPT
+#iptables -A INPUT -i br0 --destination 0.0.0.0 -j ACCEPT
+
+#Policy
+iptables -A INPUT -j ILOG
+iptables -P INPUT DROP
+
+###########
+# FORWARD #
+###########
+#VPN
+iptables -A FORWARD -i tap11 -j ACCEPT
+
+#Well-known
+iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 22 -j ACCEPT #SSH
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 43 -j ACCEPT #WHOIS
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 53 --destination 172.16.112.0/20 -j ACCEPT #DNS
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 80 -j ACCEPT #HTTP
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 443 -j ACCEPT #HTTPS
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 993 -j ACCEPT #IMAPS
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 587 -j ACCEPT #SMTPS
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 465 -j ACCEPT #SMTPS
+
+#CUSTOM
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 5228 -j ACCEPT #GOOGLE/ANDROID SYNC
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 8777 -j ACCEPT #STREAMING PROTOCOL
+
+#UDP
+iptables -A FORWARD -p udp --sport 1024:65535 --source 172.16.123.0/24 --dport 53 --destination 172.16.112.0/20 -j ACCEPT #DNS
+
+#ICMP
+iptables -A FORWARD -p icmp --source 172.16.123.0/24 -j ACCEPT #ICMP
+
+#Policy
+iptables -A FORWARD -i wl0.1 -j ACCEPT
+iptables -A FORWARD -i wl1.1 -j ACCEPT
+iptables -A FORWARD -i eth1 -j ACCEPT
+iptables -A FORWARD -i eth2 -j ACCEPT
+iptables -A FORWARD -j FLOG
+iptables -P FORWARD DROP
+
+########################################
+# SQUID FORWARD & NORMAL NAT OPERATION #
+########################################
+iptables -t nat -F
+iptables -t nat -A POSTROUTING -o vlan2 -s 172.16.123.0/24 -j MASQUERADE
+iptables -t nat -A PREROUTING -i br0 -p tcp --dport 80 ! --destination 172.16.112.0/20 -j DNAT --to 172.16.122.1:3128
+#iptables -t nat -A PREROUTING -i br0 -p tcp --dport 443 ! --destination 172.16.112.0/20 -j DNAT --to 172.16.122.1:3128
+iptables -t nat -A PREROUTING -i br0 -p tcp --dport 21 -j DNAT --to 172.16.122.1:3128
+iptables -t nat -I POSTROUTING -o br0 -s 172.16.123.0/24 -d 172.16.122.1 -j SNAT --to 172.16.123.254
+iptables -I FORWARD -s 172.16.123.0/24 -d 172.16.122.1 -i br0 -o tap11 -p tcp --dport 3128 -j ACCEPT
+
