@@ -80,6 +80,8 @@ iptables -A FORWARD -i tap11 -j ACCEPT
 
 #Well-known
 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --destination 172.16.112.0/20 -j ACCEPT
+iptables -A FORWARD -p udp --sport 1024:65535 --source 172.16.123.0/24 --destination 172.16.112.0/20 -j ACCEPT
 iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 22 -j ACCEPT #SSH
 iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 43 -j ACCEPT #WHOIS
 iptables -A FORWARD -p tcp --sport 1024:65535 --source 172.16.123.0/24 --dport 53 --destination 172.16.112.0/20 -j ACCEPT #DNS
