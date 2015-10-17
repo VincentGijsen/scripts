@@ -1,0 +1,13 @@
+[Unit]
+Description=Polling wifi clients every X timeframe
+After=network.target
+
+[Service]
+Type=simple
+PIDFile=/var/run/wifipoller.pid
+ExecStart=/opt/wifiassoc/poller.sh
+ExecStop=/bin/kill -HUP $MAINPID
+User=magiel
+
+[Install]
+WantedBy=multi-user.target
